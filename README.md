@@ -1,7 +1,8 @@
 # SHA-256
 Implementation of the FIPS 180-4  SHA-256 algorithm in ARM 64-bit assembly language.
+https://nvlpubs.nist.gov/nistpubs/FIPS/NIST.FIPS.180-4.pdf
 
-For better readability of the source code
+For better readability of the source code:
     Aliases are used for all registers -> see file 'aliases'
     Macros encapsulate frequently recurring commands and boilerplate for function declaration, functions for preprocessing (padding), sha-functions, message parsing, and hash computation  -> see file 'macro.sx'
 C-interface for the public assembly function sha256 -> sha256.h
