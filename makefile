@@ -17,8 +17,6 @@ dump: sha256.o
 	objdump -S -M no-aliases -s -d sha256.o > dump.txt
  
 
-dump2: sha256.o
-	objdump -s sha256.o > dump2.txt
  
 	
 	
