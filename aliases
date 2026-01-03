@@ -1,5 +1,6 @@
 /**
- * Availability of free space for padding with '1' and messagelength
+ * Flags used for the padding process.
+ * Availability of free space for padding block with '1' and messagelength
  */
 .equ NO_RESIDUAL_BITS, 0
 .equ FREESPACE_FOR_1_AND_LENGTH, 1   //free bits > 64
@@ -10,40 +11,42 @@
  * SHA-256 – Aliases and use of registers
  */
 // Inputs from calling function 
-mbuf  .req x0 //address of message buffer 
-mlen  .req x1 //message length in bits. 
-hbuf  .req x2 //address of buffer for final hash, immediately pushed to stack. 
-             
-ad2_ .req x2
-ad0_ .req x3  //Addresses
-ad1_ .req x4  
-tm0_ .req x5  //temporary variables
-tm0  .req w5
-tm1_ .req x6
-tm1  .req w6
-t1   .req w6 
-tm2_ .req x7
-tm2  .req w7
-t2   .req w7
-tm3_ .req x8
-tm3  .req w8
-tm4  .req w9
-tm4_ .req x9
-idx_ .req x10  //index for loops
-idx  .req w10
-siz_ .req x11  //size
-siz  .req w11
-blk_ .req x12  //blocks, block count,
-blk  .req w12
-bbi_ .req x13 //block remainder, bits < 512
-bbi  .req w13
-wrd_ .req x14  //words, word count
-wrd  .req w14
-wbi_ .req x15  //word remainder, bits < 32
-wbi  .req w15
-sft_ .req x16  //shift value
-sft  .req w16
+mbuf_  .req x0 //address of message buffer 
+mlen_  .req x1 //message length in bits. 
+hbuf_  .req x2 //address of buffer for final hash, immediately pushed to stack. 
 
+//registers used in all stages of the algorithm
+idx_ .req x2  //index for loops
+idx  .req w2
+ad0_ .req x3  //addresses
+ad1_ .req x4
+ad2_ .req x5
+tm0_ .req x6  //temporary variables
+tm0  .req w6
+tm1_ .req x7
+tm1  .req w7
+t1   .req w7 
+tm2_ .req x8
+tm2  .req w8
+t2   .req w8
+tm3_ .req x9
+tm3  .req w9
+tm4  .req w10
+tm4_ .req x10
+
+//registers only used for the peprocessing at the beginning of the program, no colission with the later hash calculation
+blk_ .req x15  //blocks, block count,
+blk  .req w15
+bbi_ .req x16 //block remainder, bits < 512
+bbi  .req w16
+wrd_ .req x17  //words, word count
+wrd  .req w17
+wbi_ .req x18  //word remainder, bits < 32
+wbi  .req w18
+sft_ .req x19  //shift factors
+sft  .req w19
+
+//registers used for the hash calculation
 kos   .req w11  //actual SHA-256 constant
 wos   .req w12  //actual workingschedule
 hash0 .req w13  
@@ -65,5 +68,3 @@ varg  .req w27
 varh  .req w30
 frmptr .req x29 //Frame Pointer
 plreg  .req x30 //Procedure Link Register
-
-//xzr          
