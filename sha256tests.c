@@ -138,6 +138,22 @@ void test_sha256_message_with_448_bits(){
      }
 }
 
+void test_sha256_message_with_8_Million_bits(){
+//Testvector from https://di-mgt.com.au/sha_testvectors.html - Message is 1 Million times the character 'a' (dec 97, hex 61)
+     int oneM = 1000000; //bytes 
+     long long int message_length = 8000000; //bits
+     int words = 250000;// message_length / 32;
+     int message[words];
+     for(int i = 0; i < words; i++){
+          message[i] = 0x61616161;
+     }
+     int expected[] = {0xcdc76e5c,0x9914fb92,0x81a1c7e2,0x84d73e67,0xf1809a48,0xa497200e,0x046d39cc,0xc7112cd0};
+     int actual[]={0,0,0,0,0,0,0,0};  
+     sha256(message, message_length, actual) ;
+     for(int i = 0; i < 8; i++){
+          TEST_INT_EQUALS_LOOP(i,expected[i], actual[i])    
+     }
+}
 	
 
 void test_Sigma1_1(){
@@ -664,6 +680,7 @@ int main(void){
  test_sha256_message_with_24_bits();
  test_sha256_message_with_1176_bits();
  test_sha256_message_with_448_bits();
+ test_sha256_message_with_8_Million_bits();
  test_Sigma1_1();
  test_Sigma1_2();
  test_Sigma0_1();
