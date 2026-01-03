@@ -7,7 +7,7 @@ Aliases are used for all registers -> see file 'aliases'
 
 Macros encapsulate frequently recurring commands and boilerplate for function declaration, functions for preprocessing (padding), sha-functions, message parsing, and hash computation  -> see file 'macro.sx'
 
-C-interface for the public assembly function sha256 -> sha256.h
+C-interface for the public function in sha256.sx -> sha256.h
 
 Unit tests: see sha256tests.c and sha256tests.h
 
