@@ -1,0 +1,490 @@
+.macro BEGIN_GLOBAL_FUNCTION function_name
+ 	.type \function_name, %function
+    .global \function_name
+	\function_name:
+		stp frmptr, plreg, [sp, #-16]!
+.endm
+
+.macro END_GLOBAL_FUNCTION function_name
+		ldp frmptr, plreg, [sp], #16
+        ret
+        .size \function_name, (. - \function_name) 
+.endm
+
+
+
+.macro PUSH2 reg1 reg2=xzr
+        stp \reg1, \reg2, [sp, #-16]!
+.endm
+
+.macro POP2 reg1 reg2=xzr
+        ldp \reg1, \reg2, [sp], #16
+.endm
+
+
+/**
+ * Takes message length and calculates 
+ * number of blocks and residual words, bytes and bits
+ */
+
+.macro CALCULATE_VALUES_FROM_MESSAGELENGTH
+                                                // example: messagelength = 2003   
+    mov siz_, #512                              // blocklength: 512          
+    udiv blk_, mlen, siz_                       //number of blocks = messaglength / blocklength: 2003 / 512 = 3 remainder 467 bits
+    adr ad0_, blockcount
+    str blk_, [ad0_]                            //'blockcount' = 3    
+    
+    msub bbi_, blk_, siz_, mlen                 //remaining bits from mlen mod 512:   bits = mlen - (blocks x 512) = 467 bits
+    adr ad0_, blockremainder
+    str bbi, [ad0_]                             // 'blockremainder' = 467
+   
+    mov siz, #32
+    udiv wrd, bbi, siz                          //number of remaining words  //number of words = 467 / 32 = 14 remainder 19 bits
+    adr ad0_, wordcount
+    str wrd, [ad0_]                             // 'wordcount' = 14 words
+    
+    msub wbi, wrd, siz, bbi                     // remaining bits:  bits = bits - (words x size) = 19
+    adr ad0_, wordremainder
+    str wbi, [ad0_]                             // 'wordremainder' = 19 bits
+
+    // Calculate free space for padding with 1 and length
+    adr ad0_, freespace
+    cmp bbi, #447                               //512 - 65  = 447 residual bits maximum
+    bhi above447\@                               
+    cmp bbi, #0
+    beq noresidualbits\@
+        //65 or more free bytes, padding with 1 and length fit into block
+        mov tm0, FREESPACE_FOR_1_AND_LENGTH     //  'freespace' = 1  
+        str tm0, [ad0_]
+        b endavailability\@
+    above447\@: 
+        mov tm0, SECOND_BLOCK_FOR_LENGTH   
+        str tm0, [ad0_]  
+        b endavailability\@                     //  'freespace' = 2 
+    noresidualbits\@:
+        mov tm0, NO_RESIDUAL_BITS
+        str tm0, [ad0_]                         //  'freespace' = 0 
+    endavailability\@:
+
+       
+.endm
+/**
+ * Stores the bits after the last full block in 'lastblock'
+ * Uses the values from CALCULATE_VALUES_FROM_MESSAGELENGTH
+ */
+.macro SET_RESIDUAL_BITS
+  PUSH2 mbuf hbuf
+  CLEAR_LASTBLOCK
+  mov siz_, #64
+  mul tm0_, blk_, siz_ 
+  add mbuf, tm0_, mbuf //mbuf contains address of end of blocks
+    
+  adr ad0_, freespace    
+  ldr tm0, [ad0_] //values 0,1,2
+  cmp tm0, #0 //no residual bits -> new block with 1 as first bit (0x80000000) and length (2 words at he end
+  beq nofreespace\@
+  cmp tm0, #1 // freespace for 1 after last bit and message at end
+  beq freespace1andlength\@  
+  //Value must be 2 -> second block only for messagelength necessary
+      STORE_RESIDUAL_WORDS_IN_LASTBLOCK
+      STORE_LENGTH_IN_LASTBLOCK length2
+  b endfreespace\@ 
+  
+  freespace1andlength\@:    
+  //set after last bit and length at end of lastblock
+
+  STORE_RESIDUAL_WORDS_IN_LASTBLOCK
+  STORE_LENGTH_IN_LASTBLOCK length
+   b endfreespace\@ 
+  
+  nofreespace\@:
+  //1 as first bit, length in last 2 words 
+    adr ad0_, lastblock
+    mov tm0, #1
+    mov sft_, #31
+    lsl tm0, tm0, sft
+    //0x80000000
+    str tm0, [ad0_]
+    STORE_LENGTH_IN_LASTBLOCK length
+  b endfreespace\@ 
+
+ endfreespace\@:
+
+ endsetbits\@:
+
+ 
+ POP2 mbuf hbuf
+.endm
+
+/**
+ * 5.3.3 
+ */
+.macro SET_INITIAL_HASH_VALUES
+	ldr hash0, =0x6a09e667  
+	ldr hash1, =0xbb67ae85
+	ldr hash2, =0x3c6ef372  
+	ldr hash3, =0xa54ff53a
+	ldr hash4, =0x510e527f  
+	ldr hash5, =0x9b05688c
+	ldr hash6, =0x1f83d9ab  
+	ldr hash7, =0x5be0cd19
+.endm
+
+.macro INIT_WORKING_VARIABLES
+    mov vara, hash0
+    mov varb, hash1
+    mov varc, hash2
+    mov vard, hash3
+    mov vare, hash4
+    mov varf, hash5
+    mov varg, hash6
+    mov varh, hash7
+.endm
+
+
+/**
+ * 4.1.2 SHA-256 Ch function (4.2)
+ * Ch(x,y,z) = (x AND y) XOR (COMPLEMENT(x) AND z)
+ * Uses temporary registers tm3, tm4
+ */
+.macro CH x y z outp         //Example: Ch(1,3,4)                      
+    and tm4, \x, \y         //b01 AND b11 = b01 in tm4
+    ldr tm3, =0xFFFFFFFF
+    eor tm3, \x, tm3      //compl of 0x1 => 0xFFFFFFFE in tm3
+    and tm3, tm3, \z       //0x4 AND 0xFFFFFFFE = 0x4 in tm3
+    eor \outp, tm4, tm3    //0x1 XOR 0x4 = 0x5
+.endm
+
+
+/**
+ * 4.1.2 SHA-256 Maj function (4.3)
+ * Maj(x,y,z) = (x AND y) XOR (x AND z) XOR (y AND z)
+ * Uses temporary registers tm4, tm3
+ */
+.macro MAJ x y z outp         //Example:  x = 0xcafebabe y=0xd0d0dead z=0xf1faabba
+    and tm4, \x, \y          //         x AND y = 0xc0d09aac
+    and tm3, \x, \z          //         x AND z = 0xc0faaaba
+    eor tm4, tm4, tm3      //       xy XOR xz = 0x002a3016             
+    and tm3, \y, \z          //         y AND z = 0xd0d08aa8
+    eor \outp, tm4, tm3     //xy XOR xz XOR yz = 0xdofababe
+.endm    
+
+
+
+/**
+ * Loads one block (16 words) from messagebuffer
+ * and stores the values at label 'workingschedule'.
+ */
+.macro PREPARE_MESSAGE_SCHEDULE_0_to_15 buffer=mbuf
+    adr ad0_, workingschedule  
+	.rept 16
+	   ldr tm4, [\buffer], #4 
+	   str tm4, [ad0_], #4
+	.endr
+.endm
+
+
+
+/**
+ * 6.2.2 Preparation of a single message schedules above 15
+ * wos = sig1(W[t-2]) + W[t-7] + sig0(W[t-15]) + W[t-16] 
+ * Expects the actual address of working schedule in ad0_
+ * Retrieves the schedules 2, 7, 15 and 16 places before the actual schedule
+ * and stores the calculated value in wos in the actual working schedule 
+ * Stores the value of wos in the actual workung schedule and increases the address by 8
+ */
+.macro PREPARE_SINGLE_MESSAGE_SCHEDULE_ABOVE_15
+       mov wos, wzr
+       ldr tm0, [ad0_, #-8]  //value of W[t-2] 
+       SIG1                     //sig1(W[t-2]) now in tm0
+       add wos, wos, tm0       //wos = sig1(W[t-2])
+       ldr tm0, [ad0_, #-28]  //value of W[t-7] in tm0
+       add wos, wos, tm0       //wos = sig1(W[t-2]) + W[t-2]
+       ldr tm0, [ad0_, #-60] //value of W[t-15]
+       SIG0                     //sig0(W[t-15]) now in tm0
+       add wos, wos, tm0       //wos = sig1(W[t-2]) + W[t-2] + sig0(W[t-15])
+       ldr tm0, [ad0_, #-64] //value of W[t-16] in tm0
+       add wos, wos, tm0       //wos = sig1(W[t-2]) + W[t-2] + sig0(W[t-15]) + W[t-16]
+       str wos, [ad0_], #4
+.endm
+
+
+.macro PREPARE_MESSAGE_SCHEDULE_16_63
+   adr ad0_, workingschedule
+   .rept 48 
+    PREPARE_SINGLE_MESSAGE_SCHEDULE_ABOVE_15      
+   .endr
+.endm 
+
+
+
+/**
+ * 6.2.2 Preparation of all 64 message schedules.
+ */
+.macro PREPARE_MESSAGE_SCHEDULE buffer
+       PREPARE_MESSAGE_SCHEDULE_0_to_15 \buffer
+     .rept 48  
+       PREPARE_SINGLE_MESSAGE_SCHEDULE_ABOVE_15
+     .endr
+.endm
+
+
+/**
+ * Sets all working schedules to zero
+ */
+.macro CLEAR_SCHEDULES
+   adr ad0_, workingschedule
+   .rept 64
+       str xzr, [ad0_], #4
+   .endr
+.endm 
+
+
+/**
+ * 4.1.2 SHA-256 (Big) Sigma functions (4.4) and (4.5) 
+ * Uses temporary registers tm4, tm3
+ * inp: vara/vare
+ * sf1 sf2, sf3: shift factors
+ * outp: t2 tm0
+ * Example (4.4 Sigma0), shift factors 2, 13, 22 and input 1
+ * ror tm4,vara, #2    |0100 0000|0000 0000|0000 0000|0000 0000|  
+ * ror tm3,vara, #13   |0000 0000|0000 1000|0000 0000|0000 0000|  
+ * eor tm4, tm4, tm3 |0100 0000|0000 1000|0000 0000|0000 0000|
+ * ror tm3,vara, #22   |0000 0000|0000 0000|0000 0100|0000 0000|
+ * eor t2,tm4, tm3    |0100 0000|0000 1000|0000 0100|0000 0000| 
+ *                        Ox4    0    0    8    0    4    0    0
+ *                   t2 = 0x40080400  
+ *
+ * Example (4.5 Sigma1), shift factors 6, 11, 25 and input 1
+ * ror tm4, vare, #6   |0000 0100|0000 0000|0000 0000|0000 0000| 
+ * ror tm3, vare, #11  |0000 0000|0010 0000|0000 0000|0000 0000|
+ * eor tm4, tm4, tm3 |0000 0100|0010 0000|0000 0000|0000 0000|
+ * ror tm3, vare, #25  |0000 0000|0000 0000|0000 0000|1000 0000|
+ * eor tm4, tm4, tm3 |0000 0100|0010 0000|0000 0000|1000 0000|
+ *                        0x0    4    2    0    0    0    8    0
+ *                 tm4 = 0x4200080    
+ */
+.macro SIGMA inp sf1 sf2 sf3 outp  
+    ror tm4,  \inp, #\sf1            
+    ror tm3,  \inp, #\sf2            
+    eor tm4,  tm4, tm3            
+    ror tm3,  \inp, #\sf3           
+    eor \outp, tm4, tm3             
+.endm                                    
+                                    
+ .macro SIGMA0  
+     SIGMA vara 2 13 22 t2     
+ .endm
+ 
+ .macro SIGMA1  
+     SIGMA vare 6 11 25 tm0 
+ .endm  
+ 
+ /**
+ * 4.1.2 SHA-256 (small) sigma functions 4.6 and 4.7 
+ * Uses temporary registers tm4, tm3
+ */
+.macro SIG inp sf1 sf2 sf3 outp   // Example (4.6 SIG0) with shift factors 7, 18, 3 and input 8 (=b1000)
+    ror tm4,  \inp, #\sf1          //|0001 0000|0000 0000|0000 0000|0000 0000|
+    ror tm3,  \inp, #\sf2          //|0000 0000|0000 0010|0000 0000|0000 0000|
+    eor tm4,  tm4, tm3           //|0001 0000|0000 0010|0000 0000|0000 0000|
+    lsr tm3,  \inp, #\sf3          //|0000 0000|0000 0000|0000 0000|0000 0001|
+    eor \outp, tm4, tm3           //|0001 0000|0000 0010|0000 0000|0000 0001|
+.endm                               //  0x1    0    0    2    0    0    0    1     
+                                    // =  0x10020001
+//                Example (4.7 SIG1) with shift factors 17, 19, 10 and input 2048 (=b1000 0000 0000)
+//    ror tm4,  \inp, #\sf1        //|0000 0100|0000 0000|0000 0000|0000 0000|
+//    ror tm3,  \inp, #\sf2        //|0000 0001|0000 0000|0000 0000|0000 0000|
+//    eor tm4,  tm4, tm3         //|0000 0101|0000 0000|0000 0000|0000 0000|
+//    lsr tm3,  \inp, #\sf3        //|0000 0000|0000 0000|0000 0000|0000 0010|
+//    eor \outp, tm4, tm3         //|0000 0101|0000 0000|0000 0000|0000 0010|
+//                                           0x5    0    0    0    0    0    2
+//                                     =0x5000002
+
+/**
+ * Input and result in tm0
+ */
+.macro SIG0
+    SIG tm0 7 18 3 tm0
+.endm
+
+/**
+ *  Input and result in tm0
+ */
+.macro SIG1
+    SIG tm0 17 19 10 tm0
+.endm
+
+
+/**
+ * 6.2.2, Hash computation                       
+ * 3. 
+ * Calculation of variable T1
+ * T1 = h + Sigma1(e) + Ch(e,f,g) + K + W
+ */
+.macro SET_T1
+    mov t1, varh 
+    SIGMA vare 6 11 25 tm0
+    add t1, t1, tm0
+    CH vare varf varg tm0 
+    add t1, t1, tm0
+    add t1, t1, kos
+    add t1, t1, wos 
+.endm
+
+
+
+/**
+ * 6.2.2, Hash computation                       
+ * 3. 
+ * Calculation of variable T2
+ * T2 = Sigma0(a) + Maj(a,b,c) 
+ */
+.macro SET_T2
+    SIGMA0  //output in t2
+    MAJ vara varb varc tm0 
+    add t2, tm0, t2
+.endm
+
+
+/**
+ * 6.2.2, 
+ * 3. 
+ * Set working variables a-h, t1, t2
+ * Expects values of actual working schedule and sha constant in wos and kos
+ */
+.macro SET_VARIABLES
+   SET_T1
+   SET_T2
+   mov varh, varg
+   mov varg, varf
+   mov varf, vare
+   add vare, vard, t1
+   mov vard, varc
+   mov varc, varb
+   mov varb, vara
+   add vara, t1, t2
+.endm 
+
+/**
+ * Sets the working variables 16 times.
+ * Expects the address of the working schedule in register ad0_
+ * and the address of the sha constants in register ad1_
+ */
+.macro SET_WORKING_VARIABLES_16
+  .rept 16
+     ldr wos, [ad0_], #4
+     ldr kos, [ad1_], #4
+     SET_VARIABLES
+  .endr
+.endm
+
+/**
+ * Sets the working variables 64 times.
+ * Expects the address of the working schedule in register ad0_
+ * and the address of the sha constants in register ad1_
+ */
+.macro SET_WORKING_VARIABLES_64_TIMES
+     adr ad0_, workingschedule
+     adr ad1_, sha256constants
+  .rept 64
+     ldr wos, [ad0_], #4
+     ldr kos, [ad1_], #4
+     SET_VARIABLES
+  .endr
+.endm
+
+/**
+ * 6.2.2, 
+ * 4. 
+ * Compute intermediate hash value.
+ * Expects values of actual working schedule and sha constant in wos and kos
+ */
+.macro SET_INTERMEDIATE_HASH
+   add hash0, hash0, vara
+   add hash1, hash1, varb   
+   add hash2, hash2, varc  
+   add hash3, hash3, vard
+   add hash4, hash4, vare
+   add hash5, hash5, varf  
+   add hash6, hash6, varg
+   add hash7, hash7, varh
+.endm
+
+
+.macro CLEAR_LASTBLOCK
+   adr ad0_, lastblock
+   .rept 32
+      str wzr, [ad0_], #4
+   .endr
+
+.endm
+
+
+ /**
+  * Stores the length found in register mlen in the lastblock
+  */
+.macro STORE_LENGTH_IN_LASTBLOCK len
+    adr ad0_, \len 
+    mov sft_, #32 
+    mov tm0_, mlen  //hi side of length first
+    lsr tm0_, tm0_, sft_
+    str tm0, [ad0_], #4
+    mov tm0_, mlen
+    str tm0, [ad0_]   //lo side of length
+.endm
+
+/**
+ * Stores the residual words in lastblock
+ */
+.macro STORE_RESIDUAL_WORDS_IN_LASTBLOCK
+       adr ad0_, lastblock
+      cmp wbi, #0   //0...31 bits 
+      cset tm0, hi  //remaining bits to be added to a new word
+      add idx, wrd, tm0
+      loopwords\@:
+        cmp idx, 1
+        blt endloop\@
+        ldr tm0, [mbuf], #4 
+        str tm0, [ad0_], #4
+        sub idx, idx, 1
+      b loopwords\@
+      endloop\@:
+      
+      //BEGINN WITH PADDING
+      sub ad1_, ad0_, #4 //this is now the address of the last word 
+      //when residual bits exist, than padding 1 within last word, otherwise
+      //put 0x80000000 after the last word
+      cmp wbi, #0
+      bhi remainingbits\@
+      //no remaining bits, so put 0x80000000 after the last word
+      add ad1_, ad1_, #4
+      mov tm0, #1
+      lsl tm0, tm0, #31
+      str tm0, [ad1_]   
+      b endloopwords\@    
+          
+      remainingbits\@:
+      mov tm0, #31
+      sub sft, tm0, wbi
+      ldr tm0, [ad1_]
+      mov tm1, #1
+      lsl tm1, tm1, sft
+      orr tm0, tm0, tm1
+      str tm0, [ad1_]
+      
+      endloopwords\@:
+.endm
+
+
+
+
+
+
+
+
+
+
+
+
+

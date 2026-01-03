@@ -1,0 +1,313 @@
+.include "aliases"
+
+.text
+.include "makros.sx"
+
+
+
+/**
+ * Test function for the first 16  words of the message schedule
+ * Input: messagebuffer in x0 = mbuf
+ * Output: buffer in x1
+ */
+BEGIN_GLOBAL_FUNCTION prepare_first_16_schedules
+    PREPARE_MESSAGE_SCHEDULE_0_to_15
+    //
+    adr ad0_, workingschedule
+	.rept 16
+	   ldr tm1, [ad0_], #4 
+	   str tm1, [x1], #4
+	.endr
+END_GLOBAL_FUNCTION prepare_first_16_schedules
+
+/**
+ * Test function for the preparation of the 17. schedule
+ * Buffer for the first 16 schedules in x0 = mbuf
+ * Output: 17 values in x1
+ * Returns the actual value of the 17.th schedule in x0
+ * 
+ */
+BEGIN_GLOBAL_FUNCTION prepare_17th_schedule
+   PREPARE_MESSAGE_SCHEDULE_0_to_15
+   PREPARE_SINGLE_MESSAGE_SCHEDULE_ABOVE_15
+   adr ad0_, workingschedule
+	.rept 17
+	   ldr tm1, [ad0_], #4 
+	   str tm1, [x1], #4
+	.endr
+   mov w0, wos
+END_GLOBAL_FUNCTION prepare_17th_schedule
+
+
+/**
+ * Test function for the preparation of the full schedule (64 words)
+ * Input: Buffer for the first 16 words of message in x0 = mbuf
+ * Output: Buffer for the 64 values in x1
+ */
+BEGIN_GLOBAL_FUNCTION prepare_schedule
+       PREPARE_MESSAGE_SCHEDULE
+    adr ad0_, workingschedule
+	.rept 64
+	   ldr tm1, [ad0_], #4 
+	   str tm1, [x1], #4
+	.endr  
+END_GLOBAL_FUNCTION prepare_schedule
+
+/**
+ * Test function for setting the 64 workingschedules to zero.
+ * x0 expects buffer with 64 words.
+ * Function fills schedules with these values.
+ * Then sets all schedules to zero.
+ * Writes the actual values (hopefully all zeroes) to the buffer in x0. 
+ */
+BEGIN_GLOBAL_FUNCTION clear_schedules
+    adr ad0_, workingschedule
+        PUSH2 x0, ad0_
+	.rept 64
+	    ldr tm1, [x0], #4 
+	    str tm1, [ad0_], #4
+	.endr    
+	CLEAR_SCHEDULES
+
+	    POP2 x0, ad0_
+	.rept 64
+	    ldr tm1, [ad0_], #4 
+	    str tm1, [x0], #4
+	.endr 	
+END_GLOBAL_FUNCTION clear_schedules
+
+
+/**
+ * Test function for the calculation of number of blocks, remaining words and residual bits
+ * Expects messagelength in x1
+ * address to buffer for blockcount, wordcount, remaining bits in x0
+ * 
+*/ 
+BEGIN_GLOBAL_FUNCTION calculate_values_from_messagelength
+    CALCULATE_VALUES_FROM_MESSAGELENGTH  
+    adr ad0_, blockcount
+    ldr tm0, [ad0_]
+    str tm0, [x0], #4
+    adr ad0_, blockremainder
+    ldr tm0, [ad0_]
+    str tm0, [x0], #4
+    adr ad0_, wordcount
+    ldr tm0, [ad0_]
+    str tm0, [x0], #4
+    adr ad0_, wordremainder
+    ldr tm0, [ad0_]
+    str tm0, [x0], #4
+    adr ad0_, freespace
+    ldr tm0, [ad0_]
+    str tm0, [x0] 
+END_GLOBAL_FUNCTION calculate_values_from_messagelength
+
+/**
+ * 4.1.2
+ * Test function for the SHA256 Ch-function. 
+ */
+BEGIN_GLOBAL_FUNCTION test_Ch
+    CH w0 w1 w2 w0
+END_GLOBAL_FUNCTION test_Ch
+
+/**
+ * 4.1.2
+ * Test function for the SHA256 Maj-function. 
+ */
+BEGIN_GLOBAL_FUNCTION test_Maj
+    Maj w0 w1 w2 w0
+END_GLOBAL_FUNCTION test_Maj
+
+
+/**
+ * 4.1.2
+ * Test functions for the SHA256 Sigma0/ Sigma1 -functions. 
+ */
+BEGIN_GLOBAL_FUNCTION test_Sigma1
+	SIGMA w0 6 11 25 w0     
+END_GLOBAL_FUNCTION test_Sigma1
+
+BEGIN_GLOBAL_FUNCTION test_Sigma0  
+	SIGMA w0 2 13 22 w0            
+END_GLOBAL_FUNCTION test_Sigma0
+
+/**
+ * 4.1.2
+ * Test functions for the SHA256 sig0/sig1 -functions. 
+ */
+BEGIN_GLOBAL_FUNCTION test_sig0
+    mov tm0, w0
+    SIG0
+    mov w0, tm0
+END_GLOBAL_FUNCTION test_sig0
+
+BEGIN_GLOBAL_FUNCTION test_sig1    
+    mov tm0, w0
+    SIG1
+    mov w0, tm0
+END_GLOBAL_FUNCTION test_sig1
+
+
+
+/**
+ * 6.2.2, 3. Test function for setting working variables a-h, t1, t2, first word of message
+ *           First round of setting working variables
+ * Input in w0: aktual working schedule = first word of message
+ *       in x1: buffer for 8 words (variables a-h)
+ * Output: working variables after first round in x0.
+ */
+BEGIN_GLOBAL_FUNCTION set_working_variables_once
+  PUSH2 x1 x2
+  mov wos, w0
+  adr ad1_, sha256constants
+  ldr kos, [ad1_]
+  SET_INITIAL_HASH_VALUES
+  INIT_WORKING_VARIABLES
+  SET_VARIABLES
+  POP2 x1 x2
+  str vara, [x1], #4
+  str varb, [x1], #4
+  str varc, [x1], #4
+  str vard, [x1], #4
+  str vare, [x1], #4
+  str varf, [x1], #4
+  str varg, [x1], #4
+  str varh, [x1], #4 
+
+END_GLOBAL_FUNCTION set_working_variables_once
+
+
+/**
+ * 6.2.2, 3. Test function for setting working variables a-h, t1, t2, first word of message
+ *           16 rounds of setting working variables
+ * Input in w0: buffer with 16 words for the actual working schedule
+ *       in x1: buffer for 8 words (variables a-h)
+ * Output: working variables after 16 rounds in x1.
+ */
+BEGIN_GLOBAL_FUNCTION set_working_variables_16_times
+  PUSH2 x1 x2
+  mov ad0_, x0
+  adr ad1_, sha256constants
+  SET_INITIAL_HASH_VALUES
+  INIT_WORKING_VARIABLES
+  SET_WORKING_VARIABLES_16
+  POP2 x1 x2
+  str vara, [x1], #4
+  str varb, [x1], #4
+  str varc, [x1], #4
+  str vard, [x1], #4
+  str vare, [x1], #4
+  str varf, [x1], #4
+  str varg, [x1], #4
+  str varh, [x1], #4
+END_GLOBAL_FUNCTION set_working_variables_16_times
+
+/**
+ * 6.2.2, 3. Test function for setting working variables a-h, t1, t2, first word of message
+ *           64 rounds of setting working variables
+ * Input in w0: buffer with 16 words for the actual working schedule
+ *       in x1: buffer for 8 words (variables a-h)
+ * Output: working variables after 64 rounds in x1.
+ */
+BEGIN_GLOBAL_FUNCTION set_working_variables_64_times
+  PUSH2 x1 
+  PREPARE_MESSAGE_SCHEDULE
+  mov ad0_, x0
+  adr ad1_, sha256constants
+  SET_INITIAL_HASH_VALUES
+  INIT_WORKING_VARIABLES
+  SET_WORKING_VARIABLES_64_TIMES
+  POP2 x1  
+  str vara, [x1], #4
+  str varb, [x1], #4
+  str varc, [x1], #4
+  str vard, [x1], #4
+  str vare, [x1], #4
+  str varf, [x1], #4
+  str varg, [x1], #4
+  str varh, [x1], #4
+END_GLOBAL_FUNCTION set_working_variables_64_times 
+
+  
+
+
+/**
+ * 6.2.2,                        
+ * 3.
+ * Test function for the calculation of the T1 variable
+ */
+BEGIN_GLOBAL_FUNCTION test_setT1
+    mov varh, w0     
+    mov vare, w1
+    mov varf, w2
+    mov varg, w3
+    mov kos, w4
+    mov wos, w5
+    SET_T1 
+    mov w0, tm1
+END_GLOBAL_FUNCTION test_setT1
+
+/**
+ * 6.2.2,                  
+ * 3. 
+ * Test function for the
+ * calculation of the T2 variable
+ */
+BEGIN_GLOBAL_FUNCTION test_setT2
+    mov vara, w0     
+    mov varb, w1
+    mov varc, w2
+    SET_T2 
+    mov w0, t2
+END_GLOBAL_FUNCTION test_setT2
+
+/**
+ * 6.22. 4. Test function for computation of intermediate hash values
+ * Input: First 16 word of working schedule in x0
+ *        Buffer for hash values in x1    
+ */
+BEGIN_GLOBAL_FUNCTION compute_intermediate_hash_value 
+  PUSH2 x1 
+  PREPARE_MESSAGE_SCHEDULE
+  mov ad0_, x0
+  adr ad1_, sha256constants
+  SET_INITIAL_HASH_VALUES
+  INIT_WORKING_VARIABLES
+  SET_WORKING_VARIABLES_64_TIMES
+  SET_INTERMEDIATE_HASH
+  POP2 x1  
+  str hash0, [x1], #4
+  str hash1, [x1], #4
+  str hash2, [x1], #4
+  str hash3, [x1], #4
+  str hash4, [x1], #4
+  str hash5, [x1], #4
+  str hash6, [x1], #4
+  str hash7, [x1], #4   
+END_GLOBAL_FUNCTION compute_intermediate_hash_value
+ 
+
+
+/**
+ * Test function
+ * Sets the residual bits of a message into 'lastblock' 
+ * input: x0 messagebuffer
+ *        x1 messagelength
+ *        x2 buffer with 16 words for the content of 'lastbuffer'
+ */ 
+BEGIN_GLOBAL_FUNCTION set_residual_bits 
+    CLEAR_LASTBLOCK
+    CALCULATE_VALUES_FROM_MESSAGELENGTH
+    SET_RESIDUAL_BITS
+
+//now store the values in x2
+   adr ad0_, lastblock
+  .rept 32
+     ldr tm0, [ad0_], #4 
+	   str tm0, [x2], #4     
+  .endr    
+    CLEAR_LASTBLOCK
+END_GLOBAL_FUNCTION set_residual_bits  
+ 
+ 
+ 
