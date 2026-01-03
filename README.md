@@ -7,4 +7,4 @@ For better readability of the source code
 C-interface for the public assembly function sha256 -> sha256.h
 Unit tests: see sha256tests.c and sha256tests.h
 
-Developed on a RaspberryPi 4 (Broadcom BCM2711, Quad core Cortex-A72 (ARM v8) 64-bit SoC @ 1.5GHz) with the Raspberry Pi OS
+Developed on a RaspberryPi 4 (Broadcom BCM2711, Quad core Cortex-A72 (ARM v8) 64-bit SoC @ 1.5GHz) with Raspberry Pi OS
