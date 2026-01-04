@@ -1,4 +1,5 @@
-# SHA-256
+# SHA-256-ARM-64-bit-assembly
+
 Implementation of the FIPS 180-4  SHA-256 algorithm in ARM 64-bit assembly language    https://nvlpubs.nist.gov/nistpubs/FIPS/NIST.FIPS.180-4.pdf
 
 For better readability of the source code:
